@@ -9,6 +9,7 @@ import torch.optim as optim
 
 import matplotlib.pyplot as plt
 
+from dataset import DirectDataLoader
 
 class RateReadout(nn.Module):
     """
@@ -24,7 +25,7 @@ class RateReadout(nn.Module):
     def forward(self, z):
         return torch.exp(self.linear(z)) * self.rate_vector
 
-# The LSTM-based RNN model
+# The RNN model
 class RNNDynamicsModel(nn.Module):
     def __init__(self, rnn_type, model_type, feature_data_dim, hidden_size, num_layers, target_data_dim, n_traj, device=None):
         """
@@ -75,7 +76,7 @@ class RNNDynamicsModel(nn.Module):
             self.rnn = nn.RNN(feature_data_dim, hidden_size, batch_first=True, num_layers=num_layers)
         
         elif rnn_type == 'LSTM':
-            self.rnn = nn.LSTM(feature_data_dim, hidden_size, batch_first=True, num_layers=num_layers)
+            raise NotImplementedError("LSTM not implemented yet")
        
         elif rnn_type == 'GRU':
             self.rnn = nn.GRU(feature_data_dim, hidden_size, batch_first=True, num_layers=num_layers)
@@ -110,59 +111,42 @@ class RNNDynamicsModel(nn.Module):
         """
         Forward pass through the model.
         """
-        out, _ = self.rnn(x, h_0 = self.h_0[traj_idx])
+        out, _ = self.rnn(x, self.h_0[traj_idx])
         out = self.readout(out)
         return out
-    
 
-def data_loader(device, feature_tensor, target_tensor, batch_size):
+def dynamicsmodel_from_loader(data:DirectDataLoader, rnn_type, model_type, hidden_size, num_layers, device=None) -> RNNDynamicsModel:
     """
-    Moves the data to the GPU and creates a DataLoader object.
-    """
-    # Ensure tensors are contiguous
-    features_contiguous = feature_tensor.contiguous()
-    targets_contiguous  = target_tensor.contiguous()
-    
-    # Move tensors to GPU
-    features_gpu    = features_contiguous.to(device)
-    targets_gpu     = targets_contiguous.to(device)
-    
-    # Create DataLoader object
-    train_dataset   = TensorDataset(features_gpu, targets_gpu)
-    train_loader    = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=False)
+    Create a dynamics model from a DirectDataLoader object.
 
-    return train_loader
+    Parameters:
+    ----------
+    data : DirectDataLoader
+        the data loader object that contains the data to train the model on
+    rnn_type : str 
+        the type of RNN to use (RNN, LSTM, GRU)
+    model_type : str
+        the type of model to parametrise using the RNN. Can be \\
+        'gaussian', in which case the output is the mean and variance of the distribution \\
+        'regression' in which case the output is the mean only \\
+        'poisson' in which case the output is the rate parameter of a Poisson distribution
+    hidden_size : int
+        dimensionality of of the hidden state
+    num_layers : int
+        the number of layers in the RNN
+    device : torch.device
+        the device to run the model on (default is None, in which case the model is run on the GPU if available, otherwise the CPU)
 
-def data_loader_direct(
-        device, 
-        feature_array: np.ndarray, 
-        target_array: np.ndarray, 
-        batch_size: int
-        ) -> list[tuple[torch.Tensor, torch.Tensor]]:
-    
-    """
-    Create a list representing the batches of data to be fed to the model.
-    If the complete dataset fits into GPU VRAM, this function speeds up training considerably, compared to using DataLoader.
+    Returns:
+    -------
+    RNNDynamicsModel
+        the dynamics model
     """
 
-    assert isinstance(feature_array, np.ndarray), "feature_array must be a numpy array"
-    assert isinstance(target_array, np.ndarray), "target_array must be a numpy array"
-    assert feature_array.shape[0] == target_array.shape[0], "feature_array and target_array must have the same number of timesteps"
+    assert isinstance(data, DirectDataLoader), "data must be an instance of DirectDataLoader"
 
-    # ensure tensors are contiguous in memory
-    features_contiguous = torch.tensor(feature_array, dtype=torch.float32).contiguous()
-    targets_contiguous  = torch.tensor(target_array, dtype=torch.float32).contiguous()
-
-    num_timesteps = feature_array.shape[0]
-    sequences = []
-    
-    for start_idx in range(0, num_timesteps, batch_size):
-        end_idx = min(start_idx + batch_size, num_timesteps)
-        feature_seq   = features_contiguous[start_idx:end_idx].contiguous().to(device)
-        target_seq    = targets_contiguous[start_idx:end_idx].contiguous().to(device)
-        sequences.append((feature_seq, target_seq))
-    
-    return sequences
+    model = RNNDynamicsModel(rnn_type, model_type, data.feature_dim, hidden_size, num_layers, data.target_dim, data.n_traj, device)
+    return model
 
 """
 CUSTOM LOSS FUNCTIONS
@@ -221,9 +205,7 @@ TRAINING FUNCTION
 
 def train_RNNDynamicsModel(
         model:          RNNDynamicsModel, 
-        feature_array:  np.ndarray, 
-        target_array:   np.ndarray, 
-        batch_size = 100, 
+        data:           DirectDataLoader,
         epochs = 1000, 
         learning_rate = 0.01, 
         plot = False
@@ -233,14 +215,9 @@ def train_RNNDynamicsModel(
     """
     
     assert isinstance(model, RNNDynamicsModel), "model must be an instance of RNNDynamicsModel"
-
-    device = model.device
-
-    # create the data loader after checking compatibility
-    assert model.feature_data_dim == feature_array.shape[1], f"model has different input dimensionality ({model.feature_data_dim}) than the feature_array ({feature_array.shape[1]})"
-    assert model.target_data_dim == target_array.shape[1], f"model has different output dimensionality ({model.target_data_dim}) than the target_array ({target_array.shape[1]})"
-    
-    train_loader = data_loader_direct(device, feature_array, target_array, batch_size)
+    assert isinstance(data, DirectDataLoader), "data must be an instance of DirectDataLoader"
+    assert model.feature_data_dim == data.feature_dim, f"model has different input dimensionality ({model.feature_data_dim}) than the features ({data.feature_dim})"
+    assert model.target_data_dim == data.target_dim, f"model has different output dimensionality ({model.target_data_dim}) than the targets ({data.target_dim})"
 
     # define the loss function according to the model type
     if model.model_type == 'gaussian':
@@ -259,13 +236,15 @@ def train_RNNDynamicsModel(
     training_start = time.time()
     last_print = training_start
 
-    losses = np.zeros((epochs, int(np.ceil(feature_array.shape[0]/batch_size)))) # keep track of the loss
+    losses = np.zeros((epochs, len(data))) # keep track of the loss
     
+    # iterate over the epochs
     for epoch in range(epochs):
+        # iterate over the data sequences
         i = 0
-        for features, targets in train_loader:
+        for features, targets, traj_idx in data:
             # forward pass
-            predicted = model(features)
+            predicted = model(features, traj_idx)
             # get the loss
             loss = criterion(predicted, targets)
             # store the loss
@@ -277,7 +256,6 @@ def train_RNNDynamicsModel(
             optimizer.step()
 
             i += 1
-        
         
         if (time.time() - last_print) > 0.5: # print regular updates for long training times
             print(f'Epoch [{epoch+1}/{epochs}], Loss: {np.mean(losses[epoch, :])}         ', end='\r')
@@ -323,25 +301,21 @@ def get_means_variances(output):
 
     return means, variances
 
-def plot_RNNDynamicsModel_pred(model, feature_array, target_array, plot_start = 0, plot_end = None, by_dim = False):
+def plot_RNNDynamicsModel_pred(model, feature_tensor, target_tensor, traj_idx, plot_start = 0, plot_end = None, by_dim = False):
     """
     Plot the predictions of the RNN model on the given data.
     """
     assert isinstance(model, RNNDynamicsModel), "model must be an instance of RNNDynamicsModel"
-    assert isinstance(feature_array, np.ndarray), "feature_array must be a numpy array"
-    assert isinstance(target_array, np.ndarray), "target_array must be a numpy array"
-    assert feature_array.shape[0] == target_array.shape[0], "feature_array and target_array must have the same number of timesteps"
-    assert model.feature_data_dim == feature_array.shape[1], f"model has different input dimensionality ({model.feature_data_dim}) than the feature_array ({feature_array.shape[1]})"
-    assert model.target_data_dim == target_array.shape[1], f"model has different output dimensionality ({model.target_data_dim}) than the target_array ({target_array.shape[1]})"
+    assert isinstance(feature_tensor, torch.Tensor), "feature_tensor must be a numpy array"
+    assert isinstance(target_tensor, torch.Tensor), "target_tensor must be a numpy array"
+    assert feature_tensor.shape[0] == target_tensor.shape[0], "feature_tensor and target_tensor must have the same number of timesteps"
+    assert model.feature_data_dim == feature_tensor.shape[1], f"model has different input dimensionality ({model.feature_data_dim}) than the feature_tensor ({feature_tensor.shape[1]})"
+    assert model.target_data_dim == target_tensor.shape[1], f"model has different output dimensionality ({model.target_data_dim}) than the target_tensor ({target_tensor.shape[1]})"
 
-    device = model.device
-
-    # move the data to the GPU
-    feature_tensor = torch.tensor(feature_array, dtype=torch.float32).to(device)
-    
+    target_array = target_tensor.detach().cpu().numpy()
 
     # run the model
-    predicted = model(feature_tensor)
+    predicted = model(feature_tensor, traj_idx)
 
     # extract the results and move them to the CPU
     model_type = model.model_type
@@ -355,7 +329,7 @@ def plot_RNNDynamicsModel_pred(model, feature_array, target_array, plot_start = 
 
     # plot the results
     if plot_end is None:
-        plot_end = feature_array.shape[0]
+        plot_end = feature_tensor.shape[0]
 
     if model_type == 'gaussian':
         means, variances = get_means_variances(predicted)
