@@ -316,7 +316,6 @@ def plot_RNNDynamicsModel_pred(model, feature_tensor, target_tensor, traj_idx, p
     # run the model
     predicted = model(feature_tensor)#, traj_idx)
     predicted = predicted.detach().cpu().numpy()
-    print(predicted.shape)
 
     # extract the results and move them to the CPU
     model_type = model.model_type
@@ -328,31 +327,34 @@ def plot_RNNDynamicsModel_pred(model, feature_tensor, target_tensor, traj_idx, p
     if model_type == 'gaussian':
         means, variances = get_means_variances(predicted)
         stds = np.sqrt(variances)
-        if by_dim == False:
         
+        if by_dim == False:
             plt.figure(figsize=(18, 3))
             plt.title('Model vs target')
             plt.plot(means[plot_start:plot_end])
             plt.plot(target_array[plot_start:plot_end], linestyle='--')
             plt.show()
+        
         elif by_dim == True:
             for i in range(model.target_data_dim):
+                ci_low = means[plot_start:plot_end, i]-2*stds[plot_start:plot_end, i]
+                ci_high = means[plot_start:plot_end, i]+2*stds[plot_start:plot_end, i]
                 plt.figure(figsize=(18, 3))
                 plt.title(f'Model vs target for dimension {i}')
                 plt.plot(means[plot_start:plot_end, i])
-                plt.fill_between(np.arange(plot_start, plot_end), means[plot_start:plot_end, i]-2*stds[plot_start:plot_end, i], means[plot_start:plot_end, i]+2*stds[plot_start:plot_end, i], alpha=0.5, label="95% CI")
+                plt.fill_between(np.arange(plot_start, plot_end), ci_low, ci_high, alpha=0.5, label="95% CI")
                 plt.plot(target_array[plot_start:plot_end, i], linestyle='--')
                 plt.show()
     
     if model_type == 'regression':
         means = predicted
         if by_dim == False:
-        
             plt.figure(figsize=(18, 3))
             plt.title('Model vs target')
             plt.plot(means[plot_start:plot_end])
             plt.plot(target_array[plot_start:plot_end], linestyle='--')
             plt.show()
+        
         elif by_dim == True:
             for i in range(model.target_data_dim):
                 plt.figure(figsize=(18, 3))
@@ -364,12 +366,12 @@ def plot_RNNDynamicsModel_pred(model, feature_tensor, target_tensor, traj_idx, p
     if model_type == 'poisson':
         means = predicted
         if by_dim == False:
-        
             plt.figure(figsize=(18, 3))
             plt.title('Model vs target')
             plt.plot(means[plot_start:plot_end])
             plt.plot(target_array[plot_start:plot_end], linestyle='--')
             plt.show()
+        
         elif by_dim == True:
             for i in range(model.target_data_dim):
                 plt.figure(figsize=(18, 3))
