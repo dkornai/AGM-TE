@@ -4,7 +4,6 @@ import numpy as np
 
 import torch
 import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader
 import torch.optim as optim
 
 import matplotlib.pyplot as plt
@@ -82,7 +81,7 @@ class RNNDynamicsModel(nn.Module):
             self.rnn = nn.GRU(feature_data_dim, hidden_size, batch_first=True, num_layers=num_layers)
 
         # set up the initial hidden state for each trajectory
-        self.h_0 = nn.Parameter(torch.zeros(n_traj, num_layers, hidden_size))
+        #self.h_0 = nn.Parameter(torch.zeros(n_traj, num_layers, hidden_size))
 
         # set up the model type
         assert model_type in ['gaussian', 'regression', 'poisson'], "model_type must be either 'gaussian','regression', or 'poisson'"
@@ -107,11 +106,11 @@ class RNNDynamicsModel(nn.Module):
         # finally, move the model to the device
         self.to(self.device)
 
-    def forward(self, x, traj_idx):
+    def forward(self, x):#, traj_idx):
         """
         Forward pass through the model.
         """
-        out, _ = self.rnn(x, self.h_0[traj_idx])
+        out, _ = self.rnn(x)#, self.h_0[traj_idx])
         out = self.readout(out)
         return out
 
@@ -144,8 +143,8 @@ def dynamicsmodel_from_loader(data:DirectDataLoader, rnn_type, model_type, hidde
     """
 
     assert isinstance(data, DirectDataLoader), "data must be an instance of DirectDataLoader"
-
-    model = RNNDynamicsModel(rnn_type, model_type, data.feature_dim, hidden_size, num_layers, data.target_dim, data.n_traj, device)
+    temp = 0
+    model = RNNDynamicsModel(rnn_type, model_type, data.feature_dim, hidden_size, num_layers, data.target_dim, temp, device)
     return model
 
 """
@@ -169,14 +168,14 @@ def gaussian_neg_log_likelihood(predicted:torch.Tensor, target:torch.Tensor):
         Mean negative log likelihood
     """
     # Separate means and variances from the predictions
-    mus = predicted[:, 0::2]                        # Even indexed outputs: means
-    sigmas_diag_log = predicted[:, 1::2]            # Odd indexed outputs: log variances
-    sigmas_diag = torch.exp(predicted[:, 1::2])     # Odd indexed outputs: variances, ensuring positivity
+    mus = predicted[:,:, 0::2]                        # Even indexed outputs: means
+    sigmas_diag_log = predicted[:,:, 1::2]            # Odd indexed outputs: log variances
+    sigmas_diag = torch.exp(predicted[:,:, 1::2])     # Odd indexed outputs: variances, ensuring positivity
     
-    determinant_term    = torch.sum(sigmas_diag_log, dim=1)
-    quadratic_term      = torch.sum(torch.pow(target - mus, 2) / sigmas_diag, dim=1)
+    determinant_term    = torch.sum(sigmas_diag_log, dim=-1)
+    quadratic_term      = torch.sum(torch.pow(target - mus, 2) / sigmas_diag, dim=-1)
 
-    constant_term = 0.5 * target.shape[1] * torch.log(torch.tensor(2 * torch.pi))
+    constant_term = 0.5 * target.shape[-1] * torch.log(torch.tensor(2 * torch.pi))
 
     return constant_term + 0.5*torch.mean(determinant_term + quadratic_term)  # Return mean negative log likelihood
 
@@ -197,7 +196,7 @@ def poisson_neg_log_likelihood(predicted:torch.Tensor, target:torch.Tensor):
         Mean negative log likelihood
     """
     per_neuron_per_timestep_loss = target*torch.log(predicted) - predicted + torch.lgamma(target + 1) # lgamma(n+1) = log(n!)
-    return torch.mean(torch.sum(-per_neuron_per_timestep_loss, dim=1))
+    return torch.mean(torch.sum(-per_neuron_per_timestep_loss, dim=-1))
 
 """
 TRAINING FUNCTION
@@ -244,7 +243,7 @@ def train_RNNDynamicsModel(
         i = 0
         for features, targets, traj_idx in data:
             # forward pass
-            predicted = model(features, traj_idx)
+            predicted = model(features)#, traj_idx)
             # get the loss
             loss = criterion(predicted, targets)
             # store the loss
@@ -297,7 +296,7 @@ def get_means_variances(output):
     log_variances = output[:, 1::2]  # Odd indexed outputs: log variances
 
     # Convert log variances to variances
-    variances = torch.exp(log_variances)
+    variances = np.exp(log_variances)
 
     return means, variances
 
@@ -308,24 +307,19 @@ def plot_RNNDynamicsModel_pred(model, feature_tensor, target_tensor, traj_idx, p
     assert isinstance(model, RNNDynamicsModel), "model must be an instance of RNNDynamicsModel"
     assert isinstance(feature_tensor, torch.Tensor), "feature_tensor must be a numpy array"
     assert isinstance(target_tensor, torch.Tensor), "target_tensor must be a numpy array"
-    assert feature_tensor.shape[0] == target_tensor.shape[0], "feature_tensor and target_tensor must have the same number of timesteps"
-    assert model.feature_data_dim == feature_tensor.shape[1], f"model has different input dimensionality ({model.feature_data_dim}) than the feature_tensor ({feature_tensor.shape[1]})"
-    assert model.target_data_dim == target_tensor.shape[1], f"model has different output dimensionality ({model.target_data_dim}) than the target_tensor ({target_tensor.shape[1]})"
+    #assert feature_tensor.shape[0] == target_tensor.shape[0], "feature_tensor and target_tensor must have the same number of timesteps"
+    #assert model.feature_data_dim == feature_tensor.shape[1], f"model has different input dimensionality ({model.feature_data_dim}) than the feature_tensor ({feature_tensor.shape[1]})"
+    #assert model.target_data_dim == target_tensor.shape[1], f"model has different output dimensionality ({model.target_data_dim}) than the target_tensor ({target_tensor.shape[1]})"
 
     target_array = target_tensor.detach().cpu().numpy()
 
     # run the model
-    predicted = model(feature_tensor, traj_idx)
+    predicted = model(feature_tensor)#, traj_idx)
+    predicted = predicted.detach().cpu().numpy()
+    print(predicted.shape)
 
     # extract the results and move them to the CPU
     model_type = model.model_type
-    if model_type == 'gaussian':
-        predicted = predicted.view(-1, model.target_data_dim*2)
-    elif model_type == 'regression':
-        predicted = predicted.view(-1, model.target_data_dim)
-    elif model_type == 'poisson':
-        predicted = predicted.view(-1, model.target_data_dim)
-    predicted = predicted.detach().cpu()
 
     # plot the results
     if plot_end is None:
