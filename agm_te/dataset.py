@@ -71,8 +71,8 @@ class DataSet():
 
         T(X -> Y) = H(Y+|Y-) - H(Y+|X-,Y-)
 
-        - features_var_to is Y- (the past of Y), used as input when estimating H(Y+|Y-)
-        - features_var_both is X- and Y- (the past of both X and Y), used as input when estimating H(Y+|X-,Y-)
+        - feat_var_to is Y- (the past of Y), used as input when estimating H(Y+|Y-)
+        - feat_var_both is X- and Y- (the past of both X and Y), used as input when estimating H(Y+|X-,Y-)
         - target_var_to is Y+ (the future of Y), used as the target in both H(Y+|Y-) and H(Y+|X-,Y-)
 
         Features are offset by -1 timestep, so that the target is the next timestep in the sequence.
@@ -86,35 +86,33 @@ class DataSet():
 
         Returns:
         -------
-        features_var_to :   list[np.ndarray]
-            Values of var_to[:-1], used in H(target_var_to|features_var_to).
-        features_var_both : list[np.ndarray]
-            Values of var_to[:-1] and var_from[:-1] concatenated, used in H(target_var_to|features_var_both).
+        feat_var_to :   list[np.ndarray]
+            Values of var_to[:-1], forming the sample of Y-
+        feat_var_from : list[np.ndarray]
+            Values of var_from[:-1] forming the sample of X-
         target_var_to :     list[np.ndarray]
-            Values of var_to[1:], used in H(target_var_to|features_var_to) and H(target_var_to|features_var_both).
-        traj_idxs :         list[int]
-            List containing the trajectory index of each array in the lists
+            Values of var_to[1:], forming the sample of Y+
         """
 
         assert var_from in self.data.keys(), f"variable {var_from} not found in the dataset"
         assert var_to in self.data.keys(), f"variable {var_to} not found in the dataset"
         assert var_from != var_to, "var_from and var_to must be different"
 
-        features_var_to   = []
-        features_var_both = []
-        target_var_to = []
+        feat_var_to   = []
+        feat_var_from = []
+        target_var_to     = []
+
+
         for traj_idx in range(self.n_traj):
             f_var_to      = self.data[var_to][traj_idx][:-1]
-            f_var_both    = np.concatenate([f_var_to, self.data[var_from][traj_idx][:-1]], axis=1)
+            f_var_from    = self.data[var_from][traj_idx][:-1]
             t_var_to      = self.data[var_to][traj_idx][1:]
 
-            features_var_to.append(f_var_to)
-            features_var_both.append(f_var_both)
+            feat_var_to.append(f_var_to)
+            feat_var_from.append(f_var_from)
             target_var_to.append(t_var_to)
-        
-        traj_idxs = list(range(self.n_traj))
 
-        return features_var_to, features_var_both, target_var_to, traj_idxs
+        return feat_var_to, feat_var_from, target_var_to
 
     def get_CTE_data(self, var_from, var_to, var_cond='remaining'):
         """
@@ -124,8 +122,8 @@ class DataSet():
 
         T(X -> Y|Z) = H(Y+|Y-,Z-) - H(Y+|X-,Y-,Z-)
         
-        - features_var_to is Y-, Z- (the past of Y and Z), used as input when estimating H(Y+|Y-,Z-)
-        - features_var_both is X-, Y-, and Z- (the past of  X, Y, and Z), used as input when estimating H(Y+|X-,Y-,Z-)
+        - feat_var_to is Y-, Z- (the past of Y and Z), used as input when estimating H(Y+|Y-,Z-)
+        - feat_var_both is X-, Y-, and Z- (the past of  X, Y, and Z), used as input when estimating H(Y+|X-,Y-,Z-)
         - target_var_to is Y+ (the future of Y), used as the target in both H(Y+|Y-,Z-) and H(Y+|X-,Y-,Z-)
 
         Features are offset by -1 timestep, so that the target is the next timestep in the sequence.
@@ -141,15 +139,16 @@ class DataSet():
         
         Returns:
         -------
-        features_var_to :   list[np.ndarray]
-            Values of var_to[:-1], used in H(target_var_to|features_var_to).
-        features_var_both : list[np.ndarray]
-            Values of var_to[:-1] and var_from[:-1] concatenated, used in H(target_var_to|features_var_both).
+        feat_var_to :   list[np.ndarray]
+            Values of var_to[:-1], forming the sample of Y-.
+        feat_var_from : list[np.ndarray]
+            Values of var_from[:-1], forming the sample of X-.
+        feat_var_cond : list[np.ndarray]
+            Values of var_cond[:-1], forming the sample of Z-.
         target_var_to :     list[np.ndarray]
-            Values of var_to[1:], used in H(target_var_to|features_var_to) and H(target_var_to|features_var_both).
-        traj_idxs :         list[int]
-            List containing the trajectory index of each array in the lists
+            Values of var_to[1:], forming the sample of Y+.
         """
+
         assert self.n_vars > 2, "dataset must have more than 2 variables to condition on a third variable"
         assert var_from in self.data.keys(), f"variable {var_from} not found in the dataset"
         assert var_to in self.data.keys(), f"variable {var_to} not found in the dataset"
@@ -160,28 +159,25 @@ class DataSet():
         if var_cond != 'remaining':
             raise NotImplementedError("Conditioning to specific variables is not yet implemented.")
         
-        features_var_to   = []
-        features_var_both = []
-        target_var_to = []
+        feat_var_to   = []
+        feat_var_from = []
+        feat_var_cond = []
+        target_var_to     = []
 
         for traj_idx in range(self.n_traj):
             f_var_to   = self.data[var_to][traj_idx][:-1]
-            for var in self.data.keys():
-                if var not in [var_from, var_to]:
-                    f_var_to = np.concatenate([f_var_to, self.data[var][traj_idx][:-1]], axis=1)
-
-            f_var_both = np.concatenate([f_var_to, self.data[var_from][traj_idx][:-1]], axis=1)
+            f_var_from = self.data[var_from][traj_idx][:-1]
+            f_var_cond = np.concatenate([self.data[var][traj_idx][:-1] for var in self.data.keys() if var not in [var_from, var_to]])
             t_var_to = self.data[var_to][traj_idx][1:]
 
-            features_var_to.append(f_var_to)
-            features_var_both.append(f_var_both)
+            feat_var_to.append(f_var_to)
+            feat_var_from.append(f_var_from)
+            feat_var_cond.append(f_var_cond)
             target_var_to.append(t_var_to)
 
-        traj_idxs = list(range(self.n_traj))
+        return feat_var_to, feat_var_from, feat_var_cond, target_var_to
 
-        return features_var_to, features_var_both, target_var_to, traj_idxs
-    
-    def get_TE_dataloaders(self, device, var_from, var_to, batch_size):
+    def get_TE_dataloaders(self, device, var_from, var_to, batch_size=1):
         """
         Returns dataloaders for estimating the transfer entropy (TE) from the variable 'var_from' to the variable 'var_to'.
 
@@ -206,18 +202,25 @@ class DataSet():
         Returns:
         -------
         dataloader_1 :  DirectDataLoader
-            Dataloader containing features_var_to and target_var_to.
+            Dataloader containing Y- as features and Y+ as target.
         dataloader_2 :  DirectDataLoader
-            Dataloader containing features_var_both and target_var_to.
+            Dataloader containing X- and Y- as features, and Y+ as target.
         """
-        features_var_to, features_var_both, target_var_to, traj_idxs = self.get_TE_data(var_from, var_to)
+        feat_var_to, feat_var_from, target_var_to = self.get_TE_data(var_from, var_to)
+
+        # dataloader for H(Y+|Y-), batch_feat_var_cond is a list of None and batch_feat_var_from is a list of None
+        batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to = \
+            prepare_training_data(batch_size, feat_var_to, target_var_to)
+        dataloader_1 = DirectDataLoader(batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to, device)
         
-        dataloader_1 = get_DirectDataLoader_fromdata(device, features_var_to, target_var_to, traj_idxs, batch_size)
-        dataloader_2 = get_DirectDataLoader_fromdata(device, features_var_both, target_var_to, traj_idxs, batch_size)
+        # dataloader for H(Y+|X-,Y-), batch_feat_var_cond is a list of None
+        batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to = \
+            prepare_training_data(batch_size, feat_var_to, target_var_to, f_var_from=feat_var_from)
+        dataloader_2 = DirectDataLoader(batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to, device)
 
         return dataloader_1, dataloader_2
     
-    def get_CTE_dataloaders(self, device, var_from, var_to, var_cond, batch_size):
+    def get_CTE_dataloaders(self, device, var_from, var_to, var_cond, batch_size=1):
         """
         Returns dataloaders for estimating the conditional transfer entropy (CTE) of the variable 'var_from' to the variable 'var_to', conditioned on the variable (or set of variables) 'var_cond'.
 
@@ -244,37 +247,164 @@ class DataSet():
         Returns:
         -------
         dataloader_1 :  DirectDataLoader
-            Dataloader containing features_var_to and target_var_to.
+            Dataloader containing Y- and Z- as features, and Y+ as target.
         dataloader_2 :  DirectDataLoader
-            Dataloader containing features_var_both and target_var_to.
+            Dataloader containing X-, Y-, and Z- as features, and Y+ as target.
         """
-        features_var_to, features_var_both, target_var_to, traj_idxs = self.get_CTE_data(var_from, var_to, var_cond)
+        feat_var_to, feat_var_from, feat_var_cond, target_var_to = self.get_CTE_data(var_from, var_to, var_cond)
         
-        dataloader_1 = get_DirectDataLoader_fromdata(device, features_var_to, target_var_to, traj_idxs, batch_size)
-        dataloader_2 = get_DirectDataLoader_fromdata(device, features_var_both, target_var_to, traj_idxs,  batch_size)
+        
+        # dataloader for H(Y+|Y-,Z-)
+        batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to = \
+            prepare_training_data(batch_size, feat_var_to, target_var_to, f_var_cond=feat_var_cond)
+        dataloader_1 = DirectDataLoader(batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to, device)
+        
+        # dataloader for H(Y+|X-,Y-,Z-)
+        batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to = \
+            prepare_training_data(batch_size, feat_var_to, target_var_to, f_var_from=feat_var_from, f_var_cond=feat_var_cond)
+        dataloader_2 = DirectDataLoader(batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to, device)
 
         return dataloader_1, dataloader_2
+
+def batch_data_list(data_list: list[np.ndarray], batch_size: int) -> list[np.ndarray]:
+    """
+    Take a list of t*d numpy arrays (each a unique trajectory), and return a list of batch_size*t*d numpy arrays.
+    """
+    assert isinstance(data_list, list), "data_list must be a list"
+    assert all(isinstance(x, np.ndarray) for x in data_list), "all elements in data_list must be numpy arrays"
+    assert all(x.ndim == 2 for x in data_list), "all numpy arrays in data_list must be 2D (timesteps x features)"
+    assert all(x.shape == data_list[0].shape for x in data_list), "all numpy arrays in data_list must have the same number of rows (timesteps) and columns (features)"
+    assert isinstance(batch_size, int), "batch_size must be an integer"
+    assert batch_size >= 1, "batch_size must be a positive integer"
+    assert len(data_list)%batch_size == 0, "number of unique trajectories must be divisible by batch_size"
+
+    batched_data = []
+    batch_counter = 0 # keeps track of the index in the current batch
+    for data in data_list:
+        if batch_counter == 0:
+            # start a new batch as all 0s
+            batched_data.append(np.zeros((batch_size, data.shape[0], data.shape[1])))
+        
+        if batch_counter < batch_size:
+            # append to the batch (starting from index 0)
+            batched_data[-1][batch_counter] = data
+            batch_counter += 1
+        
+        if batch_counter == batch_size:
+            batch_counter = 0
+
+    return batched_data
+
+def prepare_training_data(batch_size, f_var_to, t_var_to, f_var_from=None, f_var_cond=None):
+    """
+    We wish to estimate the transfer entropy (TE) from the source variable X to the target variable Y, possibly conditioned on the variable Z.
+    
+    The TE is defined as:
+        TE(X -> Y) = H(Y+|Y-) - H(Y+|X-,Y-)
+    The CTE is defined as:
+        CTE(X -> Y|Z) = H(Y+|Y-,Z-) - H(Y+|X-,Y-,Z-)
+
+    These four possible conditional entropies each require a different set of input data, which is prepared here.
+
+    - H(Y+|Y-) requires f_var_to = Y- and t_var_to = Y+
+    - H(Y+|X-,Y-) requires f_var_to = Y-, f_var_from = X-, and t_var_to = Y+
+    - H(Y+|Y-,Z-) requires f_var_to = Y-, f_var_cond = Z-, and t_var_to = Y+
+    - H(Y+|X-,Y-,Z-) requires f_var_to = Y-, f_var_from = X-, f_var_cond = Z-, and t_var_to = Y+
+
+    Parameters:
+    ----------
+    f_var_to : list[np.ndarray]
+        List of numpy arrays containing the sample representing Y- (the past of the target variable).
+    t_var_to : list[np.ndarray]
+        List of numpy arrays containing the sample representing Y+ (the future of the target variable).
+    f_var_from : list[np.ndarray], optional
+        List of numpy arrays containing the sample representing X- (the past of the source variable). Default is None.
+    f_var_cond : list[np.ndarray], optional
+        List of numpy arrays containing the sample representing Z- (the past of the conditioning variable). Default is None.
+    """
+
+    assert isinstance(f_var_to, list), "f_var_to must be a list"
+    assert all(isinstance(x, np.ndarray) for x in f_var_to), "all elements in f_var_to must be numpy arrays"
+    assert all(x.ndim == 2 for x in f_var_to), "all numpy arrays in f_var_to must be 2D (timesteps x features)"
+    assert all(x.shape == f_var_to[0].shape for x in f_var_to), "all numpy arrays in f_var_to must have the same number of rows (timesteps) and columns (features)"
+    timesteps = f_var_to[0].shape[0]
+    var_to_dim = f_var_to[0].shape[1]
+
+    assert isinstance(t_var_to, list), "t_var_to must be a list"
+    assert all(isinstance(x, np.ndarray) for x in t_var_to), "all elements in t_var_to must be numpy arrays"
+    assert all(x.ndim == 2 for x in t_var_to), "all numpy arrays in t_var_to must be 2D (timesteps x features)"
+    assert all(x.shape == t_var_to[0].shape for x in t_var_to), "all numpy arrays in t_var_to must have the same number of rows (timesteps) and columns (features)"
+    assert all(x.shape[0] == timesteps for x in t_var_to), "all numpy arrays in t_var_to must have the same number of rows (timesteps) as as the other variables"
+    assert all(x.shape[1] == var_to_dim for x in t_var_to), "all numpy arrays in t_var_to must have the same number of columns as f_var_to"
+
+    if f_var_from is not None:
+        assert isinstance(f_var_from, list), "f_var_from must be a list"
+        assert all(isinstance(x, np.ndarray) for x in f_var_from), "all elements in f_var_from must be numpy arrays"
+        assert all(x.ndim == 2 for x in f_var_from), "all numpy arrays in f_var_from must be 2D (timesteps x features)"
+        assert all(x.shape == f_var_from[0].shape for x in f_var_from), "all numpy arrays in f_var_from must have the same number of rows (timesteps) and columns (features)"
+        assert all(x.shape[0] == timesteps for x in f_var_from), "all numpy arrays in f_var_from must have the same number of rows (timesteps) as the other variables"
+        
+    if f_var_cond is not None:
+        assert isinstance(f_var_cond, list), "f_var_cond must be a list"
+        assert all(isinstance(x, np.ndarray) for x in f_var_cond), "all elements in f_var_cond must be numpy arrays"
+        assert all(x.ndim == 2 for x in f_var_cond), "all numpy arrays in f_var_cond must be 2D (timesteps x features)"
+        assert all(x.shape == f_var_cond[0].shape for x in f_var_cond), "all numpy arrays in f_var_cond must have the same number of rows (timesteps) and columns (features)"
+    
+    batched_var_to   = batch_data_list(f_var_to, batch_size)
+    batched_var_from = batch_data_list(f_var_from, batch_size) if f_var_from is not None else [None]*len(batched_var_to)
+    batched_var_cond = batch_data_list(f_var_cond, batch_size) if f_var_cond is not None else [None]*len(batched_var_to)
+    batched_target   = batch_data_list(t_var_to, batch_size)
+
+    return batched_var_to, batched_var_from, batched_var_cond, batched_target
+
 
 class DirectDataLoader():
     """
     Custom Training Data Loader for direct data loading.
     If the complete dataset fits into GPU VRAM, using this class avoids the overhead of PyTorch's DataLoader class.
+
+    Iterating over this class yields batches of data, where each batch is a tuple of the form (var_to, var_from, var_cond, target).
+    var_to and target are always present, while var_from and var_cond are optional, depending on the data provided to the DirectDataLoader.
+    present variables are always torch tensors of size batch_size x timesteps x variable_dimensions.
+    non-present variables are lists of None of size batch_size.
+
+    This is used to train the pytorch models for estimating transfer entropy (TE) and conditional transfer entropy (CTE).
     """
-    def __init__(self, data):
-        assert isinstance(data, list), "data must be a list"
-        assert len(data) > 0, "data must have at least one element"
-        assert all(isinstance(x, tuple) for x in data), "data must be a list of tuples"
-        assert all(len(x) == 3 for x in data), "each element in data must be a tuple of length 3"
-        assert all(isinstance(x[0], torch.Tensor) for x in data), "first element in each tuple must be a torch.Tensor"
-        assert all(isinstance(x[1], torch.Tensor) for x in data), "second element in each tuple must be a torch.Tensor"
-        #assert all(isinstance(x[2], int) for x in data), "third element in each tuple must be an integer"
+    def __init__(self, batched_var_to, batched_var_from, batched_var_cond, batched_target, device):
+        assert isinstance(device, torch.device), "device must be a torch.device object"
+        self.device = device
+        
+        assert len(batched_var_to) == len(batched_target) == len(batched_var_from) == len(batched_var_cond), f"all input lists must have the same length, but they have lengths {len(batched_var_to)}, {len(batched_target)}, {len(batched_var_from)}, and {len(batched_var_cond)}"
+        assert len(batched_var_to) > 0, "input lists must have at least one element"
+        
+        # data is a list of tuples, each of the form (var_to, var_from, var_cond, target)
+        data = []
+        for var_to, var_from, var_cond, target in zip(batched_var_to, batched_var_from, batched_var_cond, batched_target):
+            batch = ()
+            # var_to
+            batch += (torch.tensor(var_to, dtype=torch.float32).contiguous().to(device),)
+            # var_from
+            if var_from is not None:
+                batch += (torch.tensor(var_from, dtype=torch.float32).contiguous().to(device),)
+            else:
+                batch += (None,)
+            # var_cond
+            if var_cond is not None:
+                batch += (torch.tensor(var_cond, dtype=torch.float32).contiguous().to(device),)
+            else:
+                batch += (None,)
+            # target
+            batch += (torch.tensor(target, dtype=torch.float32).contiguous().to(device),)
+            
+            data.append(batch)
 
         self.data = data
-        self.feature_dim = data[0][0].shape[-1]  # dimensionality of the input
-        self.target_dim = data[0][1].shape[-1] # dimensionality of the target
-        #self.n_traj = len(set([x[2] for x in data])) # number of unique trajectories in the data
-        
         self.index = 0
+
+        # set attributes for dimensions of the data, this is used to check compatibility with the model and the pair dataset
+        self.var_to_dim = batched_var_to[0].shape[2]
+        self.var_from_dim = batched_var_from[0].shape[2] if batched_var_from[0] is not None else 0
+        self.var_cond_dim = batched_var_cond[0].shape[2] if batched_var_cond[0] is not None else 0
 
     def __iter__(self):
         self.index = 0
@@ -298,100 +428,10 @@ class DirectDataLoader():
             return self.data[index]
         else:
             raise TypeError('Index must be an integer or slice')
-
-
-def get_DirectDataLoader_fromdata(
-        device:         torch.device, 
-        feature_list:   list[np.ndarray],
-        target_list:    list[np.ndarray],
-        traj_idxs:      list[int],
-        batch_size:     int = 1,
-        ) ->            DirectDataLoader:
-    """
-    Create a DirectDataLoader object (used to train the dynamics models) from raw numpy arrays.    
-
-    Parameters:
-    ----------
-    device : torch.device
-        the device to run the model on
-    feature_list : list[np.ndarray]
-        list of numpy arrays containing the input data. Each array should represent a unique trajectory of the system.
-    target_list : list[np.ndarray]
-        list of numpy arrays containing the target data. Each array should represent a unique trajectory of the system.
-    traj_idxs : list[int]
-        which unique trajectory does the n-th element in feature_list and target_list belong to.
-    slice_size : None|int
-        if the data comes from a single trajectory, slice the data into chunks of size slice_size. Default is None, used when data comes from multiple trajectories to begin with.
-    batch_size : None|int
-        batch 'batch_size' sequences into 3d tensors. Default is 1, which means no batching effectively.
-
-    Returns:
-    -------
-    : DirectDataLoader
-        DirectDataLoader object containing references to the torch tensors on the declared device.
-    """
-
-    assert isinstance(device, torch.device), "device must be a torch.device object"
-    # check data types
-    assert isinstance(feature_list, list), "feature_list must be a list"
-    assert all(isinstance(x, np.ndarray) for x in feature_list), "all elements in feature_list must be numpy arrays"
-    assert isinstance(target_list, list), "target_list must be a list"
-    assert all(isinstance(x, np.ndarray) for x in target_list), "all elements in target_list must be numpy arrays"
-    assert isinstance(traj_idxs, list), "traj_idxs must be a list"
-    assert all(isinstance(x, int) for x in traj_idxs), "all elements in traj_idxs must be integers"
-    
-    # check trajectory indices
-    assert len(feature_list) == len(traj_idxs), "feature_list and traj_idxs must have the same length"
-    assert (len(traj_idxs) == 1) or (len(traj_idxs) == len(set(traj_idxs))), "all elements in traj_idxs must be unique."
-    if len(traj_idxs) == 1:
-        assert traj_idxs[0] == 0, "if there is only one trajectory, the trajectory index must be 0"
-    else:
-        assert list(np.arange(len(traj_idxs))) == traj_idxs, "trajectory indices must be consecutive integers starting from 0"
-    
-    # check data shapes 
-    assert all(x.ndim == 2 for x in feature_list), "all numpy arrays in feature_list must be 2D (timesteps x features)"
-    assert all(x.ndim == 2 for x in target_list), "all numpy arrays in target_list must be 2D (timesteps x features)"
-    assert len(feature_list) == len(target_list), "feature_list and target_list must have the same length"
-    n_vars_feature = [x.shape[1] for x in feature_list]
-    assert len(set(n_vars_feature)) == 1, "all numpy arrays in feature_list must have the same number of columns (dimensions)"
-    n_vars_target = [x.shape[1] for x in target_list]
-    assert len(set(n_vars_target)) == 1, "all numpy arrays in target_list must have the same number of columns (dimensions)"
-    len_feat_traj = [x.shape[0] for x in feature_list]
-    len_targ_traj = [x.shape[0] for x in target_list]
-    assert len(set(len_feat_traj)) == 1, "all numpy arrays in feature_list must have the same number of rows (timesteps), this is to ensure batching works correctly"
-    assert len(set(len_targ_traj)) == 1, "all numpy arrays in target_list must have the same number of rows (timesteps), this is to ensure batching works correctly"
-    assert len_feat_traj == len_targ_traj, "the n-th element of feature_list and target_list must have the same number of timesteps for all n"
-
-    # check batch_size
-    assert isinstance(batch_size, int), "batch_size must be an integer"
-    if isinstance(batch_size, int): 
-        assert batch_size >= 1, "batch_size must greater than 1"
-        assert len(feature_list)%batch_size == 0, f"number of unique trajectories {len(feature_list)} must be divisible by batch_size"
-
-    # batch 2D tensors into 3D tensors, and move to device as contiguous tensors
-    data_tuples = []
-    batch_counter = 0 # keeps track of the index in the current batch
-    for feat, targ, traj_idx in zip(feature_list, target_list, traj_idxs):
-        if batch_counter == 0:
-            # start a new batch as all 0s
-            feature_batch = np.zeros((batch_size, feat.shape[0], feat.shape[1]))
-            target_batch = np.zeros((batch_size, targ.shape[0], targ.shape[1]))
-            traj_idx_batch = []
         
-        if batch_counter < batch_size:
-            # append to the batch (starting from index 0)
-            feature_batch[batch_counter] = feat
-            target_batch[batch_counter] = targ
-            traj_idx_batch.append(traj_idx)
-            batch_counter += 1
-        
-        if batch_counter == batch_size:
-            # move to device as contiguous tensors
-            feature_seq = torch.tensor(feature_batch, dtype=torch.float32).contiguous().to(device)
-            target_seq = torch.tensor(target_batch, dtype=torch.float32).contiguous().to(device)
-            data_tuples.append((feature_seq, target_seq, traj_idx_batch))
-            batch_counter = 0 # reset the batch counter to 0 and start a new batch
-            continue
-
-    # convert into a DirectDataLoader object
-    return DirectDataLoader(data_tuples)
+    def __str__(self):
+        str_ret = f'DirectDataLoader with {len(self.data)} batches of data\n'
+        str_ret += f'\t var_to dimension: {self.var_to_dim}\n'
+        str_ret += f'\t var_from dimension: {self.var_from_dim}\n'
+        str_ret += f'\t var_cond dimension: {self.var_cond_dim}\n'
+        return str_ret
