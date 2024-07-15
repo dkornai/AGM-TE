@@ -363,10 +363,9 @@ class DirectDataLoader():
     Custom Training Data Loader for direct data loading.
     If the complete dataset fits into GPU VRAM, using this class avoids the overhead of PyTorch's DataLoader class.
 
-    Iterating over this class yields batches of data, where each batch is a tuple of the form (var_to, var_from, var_cond, target).
-    var_to and target are always present, while var_from and var_cond are optional, depending on the data provided to the DirectDataLoader.
-    present variables are always torch tensors of size batch_size x timesteps x variable_dimensions.
-    non-present variables are lists of None of size batch_size.
+    Iterating over this class yields batches of data, where each batch is a tuple of the form (features, target).
+    - features are formed by contacenating var_to with var_from and var_cond, if they are present. This forms pytorch tensors of shape (batch_size, timesteps, feature_dim).
+
 
     This is used to train the pytorch models for estimating transfer entropy (TE) and conditional transfer entropy (CTE).
     """
@@ -380,58 +379,29 @@ class DirectDataLoader():
         # data is a list of tuples, each of the form (var_to, var_from, var_cond, target)
         data = []
         for var_to, var_from, var_cond, target in zip(batched_var_to, batched_var_from, batched_var_cond, batched_target):
-            batch = ()
-            # var_to
-            batch += (torch.tensor(var_to, dtype=torch.float32).contiguous().to(device),)
-            # var_from
-            if var_from is not None:
-                batch += (torch.tensor(var_from, dtype=torch.float32).contiguous().to(device),)
-            else:
-                batch += (None,)
-            # var_cond
-            if var_cond is not None:
-                batch += (torch.tensor(var_cond, dtype=torch.float32).contiguous().to(device),)
-            else:
-                batch += (None,)
+            # input
+            input = torch.tensor(var_to, dtype=torch.float32)
+            if var_from is not None: input = torch.cat((input, torch.tensor(var_from, dtype=torch.float32)), dim=-1)
+            if var_cond is not None: input = torch.cat((input, torch.tensor(var_cond, dtype=torch.float32)), dim=-1)
+            input = input.to(device).contiguous()
+        
             # target
-            batch += (torch.tensor(target, dtype=torch.float32).contiguous().to(device),)
-            
-            data.append(batch)
+            target = torch.tensor(target, dtype=torch.float32).to(device).contiguous()
+
+            data.append((input, target))
 
         self.data = data
-        self.index = 0
 
         # set attributes for dimensions of the data, this is used to check compatibility with the model and the pair dataset
-        self.var_to_dim = batched_var_to[0].shape[2]
-        self.var_from_dim = batched_var_from[0].shape[2] if batched_var_from[0] is not None else 0
-        self.var_cond_dim = batched_var_cond[0].shape[2] if batched_var_cond[0] is not None else 0
-
-    def __iter__(self):
-        self.index = 0
-        return self  # Instance itself is the iterator
-
-    def __next__(self):
-        if self.index < len(self.data):
-            result = self.data[self.index]
-            self.index += 1
-            return result
-        else:
-            raise StopIteration
-
-    def __len__(self):
-        return len(self.data)
-    
-    def __getitem__(self, index):
-        if isinstance(index, slice):
-            return self.data[index]
-        elif isinstance(index, int):
-            return self.data[index]
-        else:
-            raise TypeError('Index must be an integer or slice')
+        self.var_to_dim     = batched_var_to[0].shape[2]
+        self.var_from_dim   = batched_var_from[0].shape[2] if batched_var_from[0] is not None else 0
+        self.var_cond_dim   = batched_var_cond[0].shape[2] if batched_var_cond[0] is not None else 0
+        # set attributes for total input and target dimensions
+        self.feature_dim    = self.var_to_dim + self.var_from_dim + self.var_cond_dim
+        self.target_dim     = self.var_to_dim
+        # set attribute for batch size
+        self.batch_size     = batched_var_to[0].shape[0]
         
     def __str__(self):
         str_ret = f'DirectDataLoader with {len(self.data)} batches of data\n'
-        str_ret += f'\t var_to dimension: {self.var_to_dim}\n'
-        str_ret += f'\t var_from dimension: {self.var_from_dim}\n'
-        str_ret += f'\t var_cond dimension: {self.var_cond_dim}\n'
         return str_ret
