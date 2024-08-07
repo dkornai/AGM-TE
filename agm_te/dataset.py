@@ -3,10 +3,10 @@ import torch
 
 class DataSet():
     """
-    Class which holds sampled data for a system of multiple variables.
+    Class which holds sampled data for a system with multiple variables.
     The raw data is stored as a dictionary, with variable names as keys and lists of numpy arrays as values.
     The class provides methods which yield the subsets of data for estimating transfer entropy (TE) and conditional transfer entropy (CTE) between variables in the DataSet.
-    Some methods yield DirectDataLoader objects, which contain the formatted and batched data ready for training the pytorch models.
+    Some methods yield AgmTrainingData objects, which contain the formatted and batched data ready for training the pytorch models.
     """
     def __init__(self, data: dict):
         # check basic types
@@ -145,7 +145,7 @@ class DataSet():
             Values of var_from[:-1], forming the sample of X-.
         feat_var_cond : list[np.ndarray]
             Values of var_cond[:-1], forming the sample of Z-.
-        target_var_to :     list[np.ndarray]
+        target_var_to : list[np.ndarray]
             Values of var_to[1:], forming the sample of Y+.
         """
 
@@ -167,7 +167,7 @@ class DataSet():
         for traj_idx in range(self.n_traj):
             f_var_to   = self.data[var_to][traj_idx][:-1]
             f_var_from = self.data[var_from][traj_idx][:-1]
-            f_var_cond = np.concatenate([self.data[var][traj_idx][:-1] for var in self.data.keys() if var not in [var_from, var_to]])
+            f_var_cond = np.concatenate([self.data[var][traj_idx][:-1] for var in self.data.keys() if var not in [var_from, var_to]], axis=-1)
             t_var_to = self.data[var_to][traj_idx][1:]
 
             feat_var_to.append(f_var_to)
@@ -177,7 +177,7 @@ class DataSet():
 
         return feat_var_to, feat_var_from, feat_var_cond, target_var_to
 
-    def get_TE_dataloaders(self, device, var_from, var_to, batch_size=1):
+    def get_TE_dataloaders(self, var_from, var_to):
         """
         Returns dataloaders for estimating the transfer entropy (TE) from the variable 'var_from' to the variable 'var_to'.
 
@@ -190,37 +190,33 @@ class DataSet():
 
         Parameters:
         ----------
-        device :        torch.device
-            Device on which the data is stored. This should be the device on which the model is run.
         var_from :      str
             Variable name for the source variable.
         var_to :        str
             Variable name for the target variable.
-        batch_size :    int
-            Batch size for the dataloaders.
         
         Returns:
         -------
-        dataloader_1 :  DirectDataLoader
+        dataloader_1 :  AgmTrainingData
             Dataloader containing Y- as features and Y+ as target.
-        dataloader_2 :  DirectDataLoader
+        dataloader_2 :  AgmTrainingData
             Dataloader containing X- and Y- as features, and Y+ as target.
         """
         feat_var_to, feat_var_from, target_var_to = self.get_TE_data(var_from, var_to)
 
         # dataloader for H(Y+|Y-), batch_feat_var_cond is a list of None and batch_feat_var_from is a list of None
         batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to = \
-            prepare_training_data(batch_size, feat_var_to, target_var_to)
-        dataloader_1 = DirectDataLoader(batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to, device)
+            prepare_training_data(feat_var_to, target_var_to)
+        dataloader_1 = AgmTrainingData(batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to)
         
         # dataloader for H(Y+|X-,Y-), batch_feat_var_cond is a list of None
         batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to = \
-            prepare_training_data(batch_size, feat_var_to, target_var_to, f_var_from=feat_var_from)
-        dataloader_2 = DirectDataLoader(batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to, device)
+            prepare_training_data(feat_var_to, target_var_to, f_var_from=feat_var_from)
+        dataloader_2 = AgmTrainingData(batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to)
 
         return dataloader_1, dataloader_2
     
-    def get_CTE_dataloaders(self, device, var_from, var_to, var_cond, batch_size=1):
+    def get_CTE_dataloaders(self, var_from, var_to, var_cond):
         """
         Returns dataloaders for estimating the conditional transfer entropy (CTE) of the variable 'var_from' to the variable 'var_to', conditioned on the variable (or set of variables) 'var_cond'.
 
@@ -233,22 +229,18 @@ class DataSet():
 
         Parameters:
         ----------
-        device :        torch.device
-            Device on which the data is stored. This should be the device on which the model is run.
         var_from :      str
             Variable name for the source variable.
         var_to :        str
             Variable name for the target variable.
         var_cond :      str, optional
             Variable name for the conditioning variable. Default is None, which means conditioning on all remaining variables.
-        batch_size :    int
-            Batch size for the dataloaders.
         
         Returns:
         -------
-        dataloader_1 :  DirectDataLoader
+        dataloader_1 :  AgmTrainingData
             Dataloader containing Y- and Z- as features, and Y+ as target.
-        dataloader_2 :  DirectDataLoader
+        dataloader_2 :  AgmTrainingData
             Dataloader containing X-, Y-, and Z- as features, and Y+ as target.
         """
         feat_var_to, feat_var_from, feat_var_cond, target_var_to = self.get_CTE_data(var_from, var_to, var_cond)
@@ -256,51 +248,41 @@ class DataSet():
         
         # dataloader for H(Y+|Y-,Z-)
         batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to = \
-            prepare_training_data(batch_size, feat_var_to, target_var_to, f_var_cond=feat_var_cond)
-        dataloader_1 = DirectDataLoader(batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to, device)
+            prepare_training_data(feat_var_to, target_var_to, f_var_cond=feat_var_cond)
+        dataloader_1 = AgmTrainingData(batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to)
         
         # dataloader for H(Y+|X-,Y-,Z-)
         batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to = \
-            prepare_training_data(batch_size, feat_var_to, target_var_to, f_var_from=feat_var_from, f_var_cond=feat_var_cond)
-        dataloader_2 = DirectDataLoader(batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to, device)
+            prepare_training_data(feat_var_to, target_var_to, f_var_from=feat_var_from, f_var_cond=feat_var_cond)
+        dataloader_2 = AgmTrainingData(batch_feat_var_to, batch_feat_var_from, batch_feat_var_cond, batch_target_var_to)
 
         return dataloader_1, dataloader_2
 
-def batch_data_list(data_list: list[np.ndarray], batch_size: int) -> list[np.ndarray]:
+def stack_data_list(data_list: list[np.ndarray]) -> np.ndarray:
     """
-    Take a list of t*d numpy arrays (each a unique trajectory), and return a list of batch_size*t*d numpy arrays.
+    Take a list of t*d numpy arrays (each a unique trajectory), and return a combined concatenated array.
     """
     assert isinstance(data_list, list), "data_list must be a list"
     assert all(isinstance(x, np.ndarray) for x in data_list), "all elements in data_list must be numpy arrays"
     assert all(x.ndim == 2 for x in data_list), "all numpy arrays in data_list must be 2D (timesteps x features)"
     assert all(x.shape == data_list[0].shape for x in data_list), "all numpy arrays in data_list must have the same number of rows (timesteps) and columns (features)"
-    assert isinstance(batch_size, int), "batch_size must be an integer"
-    assert batch_size >= 1, "batch_size must be a positive integer"
-    assert len(data_list)%batch_size == 0, "number of unique trajectories must be divisible by batch_size"
 
-    batched_data = []
-    batch_counter = 0 # keeps track of the index in the current batch
-    for data in data_list:
-        if batch_counter == 0:
-            # start a new batch as all 0s
-            batched_data.append(np.zeros((batch_size, data.shape[0], data.shape[1])))
-        
-        if batch_counter < batch_size:
-            # append to the batch (starting from index 0)
-            batched_data[-1][batch_counter] = data
-            batch_counter += 1
-        
-        if batch_counter == batch_size:
-            batch_counter = 0
+    timesteps, dim = data_list[0].shape
+    n_traj = len(data_list)
 
-    return batched_data
+    data = np.zeros((n_traj, timesteps, dim), dtype=np.float32)
+    for i, element in enumerate(data_list):
+        data[i, :, :] = np.array(element, dtype=np.float32)
 
-def prepare_training_data(batch_size, f_var_to, t_var_to, f_var_from=None, f_var_cond=None):
+    return data 
+ 
+def prepare_training_data(f_var_to, t_var_to, f_var_from=None, f_var_cond=None):
     """
     We wish to estimate the transfer entropy (TE) from the source variable X to the target variable Y, possibly conditioned on the variable Z.
     
     The TE is defined as:
         TE(X -> Y) = H(Y+|Y-) - H(Y+|X-,Y-)
+    
     The CTE is defined as:
         CTE(X -> Y|Z) = H(Y+|Y-,Z-) - H(Y+|X-,Y-,Z-)
 
@@ -308,6 +290,7 @@ def prepare_training_data(batch_size, f_var_to, t_var_to, f_var_from=None, f_var
 
     - H(Y+|Y-) requires f_var_to = Y- and t_var_to = Y+
     - H(Y+|X-,Y-) requires f_var_to = Y-, f_var_from = X-, and t_var_to = Y+
+
     - H(Y+|Y-,Z-) requires f_var_to = Y-, f_var_cond = Z-, and t_var_to = Y+
     - H(Y+|X-,Y-,Z-) requires f_var_to = Y-, f_var_from = X-, f_var_cond = Z-, and t_var_to = Y+
 
@@ -350,58 +333,55 @@ def prepare_training_data(batch_size, f_var_to, t_var_to, f_var_from=None, f_var
         assert all(x.ndim == 2 for x in f_var_cond), "all numpy arrays in f_var_cond must be 2D (timesteps x features)"
         assert all(x.shape == f_var_cond[0].shape for x in f_var_cond), "all numpy arrays in f_var_cond must have the same number of rows (timesteps) and columns (features)"
     
-    batched_var_to   = batch_data_list(f_var_to, batch_size)
-    batched_var_from = batch_data_list(f_var_from, batch_size) if f_var_from is not None else [None]*len(batched_var_to)
-    batched_var_cond = batch_data_list(f_var_cond, batch_size) if f_var_cond is not None else [None]*len(batched_var_to)
-    batched_target   = batch_data_list(t_var_to, batch_size)
+    feature_var_to   = stack_data_list(f_var_to)
+    feature_var_from = stack_data_list(f_var_from) if f_var_from is not None else None
+    feature_var_cond = stack_data_list(f_var_cond) if f_var_cond is not None else None
+    target_var_to    = stack_data_list(t_var_to)
 
-    return batched_var_to, batched_var_from, batched_var_cond, batched_target
+    return feature_var_to, feature_var_from, feature_var_cond, target_var_to
 
 
-class DirectDataLoader():
+class AgmTrainingData():
     """
-    Custom Training Data Loader for direct data loading.
-    If the complete dataset fits into GPU VRAM, using this class avoids the overhead of PyTorch's DataLoader class.
+    Custom Training Data class. 
 
-    Iterating over this class yields batches of data, where each batch is a tuple of the form (features, target).
-    - features are formed by contacenating var_to with var_from and var_cond, if they are present. This forms pytorch tensors of shape (batch_size, timesteps, feature_dim).
+    Attributes:
 
-
-    This is used to train the pytorch models for estimating transfer entropy (TE) and conditional transfer entropy (CTE).
+    - self.input is a 3D numpy array of shape (n_traj, n_timesteps, feature_dim)
+    - self.target is a 3D numpy array of shape (n_traj, n_timesteps, target_dim)
+    - self.var_to_dim is the dimension of the target variable
+    - self.var_from_dim is the dimension of the source variable (0 if no source variable is used)
+    - self.var_cond_dim is the dimension of the conditioning variable (0 if no conditioning variable is used)
+    - self.feature_dim is the total dimension of the input data (var_to_dim + var_from_dim + var_cond_dim)
+    - self.target_dim is the total dimension of the target data (var_to_dim)
+    
     """
-    def __init__(self, batched_var_to, batched_var_from, batched_var_cond, batched_target, device):
-        assert isinstance(device, torch.device), "device must be a torch.device object"
-        self.device = device
+    def __init__(self, f_var_to, f_var_from, f_var_cond, target_var_to):
         
-        assert len(batched_var_to) == len(batched_target) == len(batched_var_from) == len(batched_var_cond), f"all input lists must have the same length, but they have lengths {len(batched_var_to)}, {len(batched_target)}, {len(batched_var_from)}, and {len(batched_var_cond)}"
-        assert len(batched_var_to) > 0, "input lists must have at least one element"
+        n_traj_per_dataset = [element.shape[0] for element in [f_var_to, f_var_from, f_var_cond, target_var_to] if isinstance(element, np.ndarray) ]
+        assert len(set(n_traj_per_dataset)) == 1, 'all datasets must have the same number of trajectories'
+        timesteps_per_dataset = [element.shape[1] for element in [f_var_to, f_var_from, f_var_cond, target_var_to] if isinstance(element, np.ndarray) ]
+        assert len(set(timesteps_per_dataset)) == 1, 'all datasets must have the same number of timesteps'
         
-        # data is a list of tuples, each of the form (var_to, var_from, var_cond, target)
-        data = []
-        for var_to, var_from, var_cond, target in zip(batched_var_to, batched_var_from, batched_var_cond, batched_target):
-            # input
-            input = torch.tensor(var_to, dtype=torch.float32)
-            if var_from is not None: input = torch.cat((input, torch.tensor(var_from, dtype=torch.float32)), dim=-1)
-            if var_cond is not None: input = torch.cat((input, torch.tensor(var_cond, dtype=torch.float32)), dim=-1)
-            input = input.to(device).contiguous()
-        
-            # target
-            target = torch.tensor(target, dtype=torch.float32).to(device).contiguous()
+        # input data (features)
+        input = np.array(f_var_to, dtype=np.float32)
+        if f_var_from is not None: input = np.concatenate((input, np.array(f_var_from, dtype=np.float32)), axis=-1)
+        if f_var_cond is not None: input = np.concatenate((input, np.array(f_var_cond, dtype=np.float32)), axis=-1)
+    
+        # target data
+        target = np.array(target_var_to, dtype=np.float32)
 
-            data.append((input, target))
-
-        self.data = data
+        self.input = input
+        self.target = target
 
         # set attributes for dimensions of the data, this is used to check compatibility with the model and the pair dataset
-        self.var_to_dim     = batched_var_to[0].shape[2]
-        self.var_from_dim   = batched_var_from[0].shape[2] if batched_var_from[0] is not None else 0
-        self.var_cond_dim   = batched_var_cond[0].shape[2] if batched_var_cond[0] is not None else 0
-        # set attributes for total input and target dimensions
+        self.var_to_dim     = f_var_to.shape[2]
+        self.var_from_dim   = f_var_from.shape[2] if f_var_from is not None else 0
+        self.var_cond_dim   = f_var_cond.shape[2] if f_var_cond is not None else 0
+
+        # set attributes for total input and target dimensions (used for checking the match to a given model instance)
         self.feature_dim    = self.var_to_dim + self.var_from_dim + self.var_cond_dim
         self.target_dim     = self.var_to_dim
-        # set attribute for batch size
-        self.batch_size     = batched_var_to[0].shape[0]
         
     def __str__(self):
-        str_ret = f'DirectDataLoader with {len(self.data)} batches of data\n'
-        return str_ret
+        return f'AgmTrainingData with feature of size ({self.input.shape[0]}, {self.input.shape[1]}, {self.input.shape[2]}) and target of size ({self.target.shape[0]}, {self.target.shape[1]}, {self.target.shape[2]})'
