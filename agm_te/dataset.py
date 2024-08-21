@@ -152,11 +152,12 @@ class DataSet():
         assert self.n_vars > 2, "dataset must have more than 2 variables to condition on a third variable"
         assert var_from in self.data.keys(), f"variable {var_from} not found in the dataset"
         assert var_to in self.data.keys(), f"variable {var_to} not found in the dataset"
+        assert var_cond in self.data.keys() or var_cond == 'remaining', f"variable {var_cond} not found in the dataset"
         assert var_from != var_to, "var_from and var_to must be different"
         assert var_cond != var_from, "var_cond cannot be the same as var_from"
         assert var_cond != var_to, "var_cond cannot be the same as var_to"
 
-        if var_cond != 'remaining':
+        if var_cond == 'remaining':
             raise NotImplementedError("Conditioning to specific variables is not yet implemented.")
         
         feat_var_to   = []
@@ -167,7 +168,10 @@ class DataSet():
         for traj_idx in range(self.n_traj):
             f_var_to   = self.data[var_to][traj_idx][:-1]
             f_var_from = self.data[var_from][traj_idx][:-1]
-            f_var_cond = np.concatenate([self.data[var][traj_idx][:-1] for var in self.data.keys() if var not in [var_from, var_to]], axis=-1)
+            if var_cond == 'remaining':
+                f_var_cond = np.concatenate([self.data[var][traj_idx][:-1] for var in self.data.keys() if var not in [var_from, var_to]], axis=-1)
+            else:
+                f_var_cond = self.data[var_cond][traj_idx][:-1]
             t_var_to = self.data[var_to][traj_idx][1:]
 
             feat_var_to.append(f_var_to)
