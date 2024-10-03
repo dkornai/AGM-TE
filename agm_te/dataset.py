@@ -157,7 +157,7 @@ class DataSet():
         assert var_cond != var_from, "var_cond cannot be the same as var_from"
         assert var_cond != var_to, "var_cond cannot be the same as var_to"
 
-        if var_cond == 'remaining':
+        if var_cond != 'remaining':
             raise NotImplementedError("Conditioning to specific variables is not yet implemented.")
         
         feat_var_to   = []
