@@ -5,13 +5,10 @@ Approximate Generative Model estimation of Transfer Entropy or `agm_te` is a pyt
 Transfer entropy from a variable $X$ to a variable $Y$, given an observation of length $T$, is estimated as: 
 
 $$
-\begin{align*}
-	\hat{\mathcal{T}}_{X \to Y }&= \frac{1}{T}\sum\nolimits_{t=1}^{T}[-\log q_1(y_{t+1}|\mathbf{y_t})] \\
-	&\qquad- \frac{1}{T}\sum\nolimits_{t=1}^{T}[-\log q_2(y_{t+1}|\mathbf{y_t}, \mathbf{x_t})]
-\end{align*}
+\hat{\mathcal{T}}_{X \to Y }&= \frac{1}{T}\sum\nolimits_{t=1}^{T}[-\log q_1(y_{t+1}|\mathbf{y_t})] - \frac{1}{T}\sum\nolimits_{t=1}^{T}[-\log q_2(y_{t+1}|\mathbf{y_t}, \mathbf{x_t})]
 $$
 
-where $q_1$ and $q_2$ are competing probabilistic forecasting models over $y_{t+1}$, given either the past of $Y$ [$\mathbf{y_t}$], or the past of both $Y$ and $X$.  [$\mathbf{y_t}, \mathbf{x_t}$]
+where $q_1$ and $q_2$ are competing probabilistic forecasting models over $y_{t+1}$, given either the past of $Y$ [$\mathbf{y_t}$], or the past of both $Y$ and $X$.  [ $\mathbf{y_t}, \mathbf{x_t}$ ]
 
 ## Installation
 
